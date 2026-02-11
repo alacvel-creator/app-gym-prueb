@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
-import { Flame, ChevronRight, ChevronLeft, LayoutDashboard, Timer, Activity, Save, CheckCircle2 } from 'lucide-react';
+import { Flame, ChevronRight, ChevronLeft, LayoutDashboard, Timer, Activity, CheckCircle2 } from 'lucide-react';
 
 // --- CONFIGURACIÓN FIREBASE ---
 const firebaseConfig = JSON.parse(__firebase_config);
@@ -22,7 +22,7 @@ export default function App() {
     
     const timerRef = useRef(null);
 
-    // 1. Autenticación (Regla 3: Auth antes que nada)
+    // 1. Autenticación (Priorizando el token inicial si existe)
     useEffect(() => {
         const initAuth = async () => {
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -36,17 +36,15 @@ export default function App() {
         return () => unsubscribe();
     }, []);
 
-    // 2. Cargar Progreso desde Firestore (Regla 1: Rutas estrictas)
+    // 2. Cargar Progreso desde Firestore (Sincronización en tiempo real)
     useEffect(() => {
         if (!user) return;
         
-        // Usamos la ruta obligatoria para datos privados del usuario
         const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'progress', 'current');
         
         const unsubscribe = onSnapshot(docRef, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
-                // Cargamos el historial de músculos completados hoy
                 setHistory(data.history || {});
             }
         }, (err) => {
@@ -56,12 +54,12 @@ export default function App() {
         return () => unsubscribe();
     }, [user]);
 
-    // Función para guardar progreso en la nube
+    // Función para guardar progreso en la nube tras completar las 7 series
     const saveProgress = async (muscleId, isCompleted = false) => {
         if (!user) return;
         const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'progress', 'current');
         
-        const today = new Date().toISOString().split('T')[0]; // Solo la fecha YYYY-MM-DD
+        const today = new Date().toISOString().split('T')[0];
         
         const newHistory = { ...history };
         if (isCompleted) {
@@ -78,13 +76,12 @@ export default function App() {
         }
     };
 
-    // Lógica del Temporizador (Sin sonido, solo visual y vibración)
+    // Lógica del Temporizador con Feedback de Vibración
     useEffect(() => {
         if (timerActive && timeLeft > 0) {
             timerRef.current = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
         } else if (timeLeft === 0) {
             setTimerActive(false);
-            // Vibración al terminar (funciona en la mayoría de Androids)
             if (window.navigator.vibrate) {
                 window.navigator.vibrate([300, 100, 300]);
             }
@@ -108,7 +105,7 @@ export default function App() {
 
     return (
         <div className="min-h-screen bg-black text-white flex flex-col font-sans select-none overflow-hidden">
-            {/* Header con Safe Area */}
+            {/* Cabecera optimizada para Safe Area de móviles */}
             <header className="pt-14 p-6 border-b border-zinc-900 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-50">
                 <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
@@ -120,7 +117,7 @@ export default function App() {
                     {user && (
                         <div className="px-3 py-1 bg-zinc-900 rounded-full border border-zinc-800">
                             <p className="text-[9px] text-zinc-500 font-bold uppercase tracking-widest flex items-center gap-1">
-                                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> Online
+                                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span> Sincronizado
                             </p>
                         </div>
                     )}
@@ -132,7 +129,7 @@ export default function App() {
                     <div className="space-y-6 animate-in fade-in duration-500">
                         <div className="px-1">
                             <h2 className="text-zinc-500 font-black uppercase text-[10px] tracking-[0.3em] mb-1">Entrenamiento de Hoy</h2>
-                            <p className="text-xs text-zinc-400">Progreso sincronizado con la nube.</p>
+                            <p className="text-xs text-zinc-400">Tu progreso se guarda automáticamente.</p>
                         </div>
                         
                         <div className="grid gap-3">
@@ -205,7 +202,7 @@ export default function App() {
                 )}
             </main>
 
-            {/* Navbar Bottom Fija */}
+            {/* Barra de navegación inferior */}
             <nav className="fixed bottom-0 left-0 right-0 bg-black border-t border-zinc-900 pb-10 pt-4 flex justify-around px-8 z-50">
                 <button onClick={() => setView('home')} className={`flex flex-col items-center gap-1 ${view === 'home' ? 'text-red-600' : 'text-zinc-700'}`}>
                     <LayoutDashboard className="w-6 h-6" />
