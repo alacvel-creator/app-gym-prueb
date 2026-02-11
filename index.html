@@ -1,147 +1,230 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>FST-7 Elite</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React & Lucide Icons -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/lucide@0.344.0/dist/umd/lucide.min.js"></script>
-    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
-    <style>
-        body { 
-            background-color: black; 
-            margin: 0; 
-            font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto;
-            -webkit-tap-highlight-color: transparent;
-            overflow-x: hidden;
-        }
-        .safe-top { padding-top: env(safe-area-inset-top); }
-        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
-    </style>
-</head>
-<body>
-    <div id="root"></div>
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, doc, setDoc, onSnapshot, collection } from 'firebase/firestore';
+import { Flame, ChevronRight, ChevronLeft, LayoutDashboard, Timer, Dumbbell, Activity, Save } from 'lucide-react';
 
-    <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+// --- CONFIGURACIÓN FIREBASE ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'fst7-elite-app';
 
-        const Icon = ({ name, className }) => {
-            const ref = useRef(null);
-            useEffect(() => {
-                if (window.lucide && window.lucide.icons[name]) {
-                    window.lucide.createIcons({
-                        icons: { [name]: window.lucide.icons[name] },
-                        attrs: { class: className }
-                    });
-                }
-            }, [name, className]);
-            return <i data-lucide={name} className={className}></i>;
+export default function App() {
+    const [user, setUser] = useState(null);
+    const [view, setView] = useState('home');
+    const [selectedMuscle, setSelectedMuscle] = useState(null);
+    const [timerActive, setTimerActive] = useState(false);
+    const [timeLeft, setTimeLeft] = useState(30);
+    const [currentSet, setCurrentSet] = useState(1);
+    const [history, setHistory] = useState({});
+    const [audioReady, setAudioReady] = useState(false);
+    
+    const timerRef = useRef(null);
+    const audioCtxRef = useRef(null);
+
+    // 1. Autenticación (Regla 3)
+    useEffect(() => {
+        const initAuth = async () => {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
         };
+        initAuth();
+        const unsubscribe = onAuthStateChanged(auth, setUser);
+        return () => unsubscribe();
+    }, []);
 
-        function App() {
-            const [view, setView] = useState('home');
-            const [selectedMuscle, setSelectedMuscle] = useState(null);
-            const [timerActive, setTimerActive] = useState(false);
-            const [timeLeft, setTimeLeft] = useState(30);
-            const [currentSet, setCurrentSet] = useState(1);
-            const timerRef = useRef(null);
-
-            const protocols = [
-                { id: 'chest', title: 'Pecho', fst7: 'Pec Deck / Cruces' },
-                { id: 'back', title: 'Espalda', fst7: 'Pullover Polea' },
-                { id: 'quads', title: 'Cuádriceps', fst7: 'Extensiones' },
-                { id: 'arms', title: 'Bíceps/Tríceps', fst7: 'Curl / Polea' }
-            ];
-
-            useEffect(() => {
-                if (timerActive && timeLeft > 0) {
-                    timerRef.current = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
-                } else if (timeLeft === 0) {
-                    setTimerActive(false);
-                    if (window.navigator.vibrate) window.navigator.vibrate(200);
+    // 2. Cargar Progreso desde Firestore (Regla 1 y 2)
+    useEffect(() => {
+        if (!user) return;
+        
+        const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'progress', 'current');
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setHistory(data.history || {});
+                if (data.activeSession) {
+                    setCurrentSet(data.activeSession.set);
                 }
-                return () => clearTimeout(timerRef.current);
-            }, [timerActive, timeLeft]);
+            }
+        }, (err) => console.error("Error cargando datos:", err));
 
-            const startTimer = () => {
-                setTimeLeft(30);
-                setTimerActive(true);
-            };
+        return () => unsubscribe();
+    }, [user]);
 
-            return (
-                <div className="min-h-screen bg-black text-white flex flex-col safe-top safe-bottom">
-                    <header className="p-6 border-b border-zinc-900 flex justify-between items-center bg-zinc-950/80 backdrop-blur-md sticky top-0 z-50">
-                        <div className="flex items-center gap-2">
-                            <div className="bg-red-600 p-1.5 rounded-md">
-                                <Icon name="Flame" className="w-5 h-5 text-white" />
-                            </div>
-                            <h1 className="text-xl font-black italic tracking-tighter uppercase">FST-7 <span className="text-red-600">Elite</span></h1>
+    // Función para guardar progreso
+    const saveProgress = async (muscleId, setNum) => {
+        if (!user) return;
+        const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'progress', 'current');
+        
+        const newHistory = { ...history, [muscleId]: new Date().toISOString() };
+        await setDoc(docRef, {
+            history: newHistory,
+            activeSession: { muscleId, set: setNum, lastUpdated: new Date().toISOString() }
+        }, { merge: true });
+    };
+
+    // Función de Sonido (Beep) para evitar bloqueos de navegador
+    const playAlertSound = () => {
+        if (!audioCtxRef.current) return;
+        const ctx = audioCtxRef.current;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime); // Nota La
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start();
+        osc.stop(ctx.currentTime + 1);
+    };
+
+    // Inicializar Audio en el primer toque (Requisito de móviles)
+    const initAudio = () => {
+        if (!audioReady) {
+            audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            setAudioReady(true);
+        }
+    };
+
+    useEffect(() => {
+        if (timerActive && timeLeft > 0) {
+            timerRef.current = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
+        } else if (timeLeft === 0) {
+            setTimerActive(false);
+            playAlertSound();
+            if (window.navigator.vibrate) window.navigator.vibrate([200, 100, 200]);
+        }
+        return () => clearTimeout(timerRef.current);
+    }, [timerActive, timeLeft]);
+
+    const startTimer = () => {
+        initAudio();
+        setTimeLeft(30);
+        setTimerActive(true);
+    };
+
+    const protocols = [
+        { id: 'chest', title: 'Pecho', fst7: 'Pec Deck / Cruces' },
+        { id: 'back', title: 'Espalda', fst7: 'Pullover Polea' },
+        { id: 'quads', title: 'Cuádriceps', fst7: 'Extensiones' },
+        { id: 'arms', title: 'Bíceps/Tríceps', fst7: 'Curl / Polea' }
+    ];
+
+    return (
+        <div className="min-h-screen bg-black text-white flex flex-col font-sans select-none" onClick={initAudio}>
+            {/* Safe Area Header */}
+            <header className="pt-12 p-6 border-b border-zinc-900 flex justify-between items-center bg-zinc-950/80 backdrop-blur-md sticky top-0 z-50">
+                <div className="flex items-center gap-2">
+                    <div className="bg-red-600 p-1.5 rounded-md shadow-lg shadow-red-600/20">
+                        <Flame className="w-5 h-5 text-white" fill="currentColor" />
+                    </div>
+                    <h1 className="text-xl font-black italic tracking-tighter uppercase">FST-7 <span className="text-red-600">Elite</span></h1>
+                </div>
+                {user && <div className="text-[8px] text-zinc-700 font-mono">ID: {user.uid.substring(0,6)}</div>}
+            </header>
+
+            <main className="flex-1 p-5 pb-32">
+                {view === 'home' ? (
+                    <div className="space-y-6 animate-in fade-in duration-500">
+                        <div>
+                            <h2 className="text-zinc-500 font-bold uppercase text-[10px] tracking-[0.3em] mb-1">Tu Progreso</h2>
+                            <p className="text-xs text-zinc-400">Tus datos se guardan automáticamente en la nube.</p>
                         </div>
-                    </header>
-
-                    <main className="flex-1 p-5 pb-24">
-                        {view === 'home' ? (
-                            <div className="space-y-4">
-                                <h2 className="text-zinc-500 font-bold uppercase text-[10px] tracking-widest">Protocolos de Entrenamiento</h2>
-                                {protocols.map(p => (
-                                    <button 
-                                        key={p.id} 
-                                        onClick={() => {setSelectedMuscle(p); setView('workout'); setCurrentSet(1); setTimerActive(false);}} 
-                                        className="w-full bg-zinc-900 p-5 rounded-2xl border border-zinc-800 flex justify-between items-center active:bg-zinc-800 transition-colors"
-                                    >
+                        
+                        <div className="grid gap-3">
+                            {protocols.map(p => (
+                                <button 
+                                    key={p.id} 
+                                    onClick={() => {setSelectedMuscle(p); setView('workout'); initAudio();}} 
+                                    className="w-full bg-zinc-900/50 p-5 rounded-3xl border border-zinc-800 flex justify-between items-center active:scale-95 transition-all"
+                                >
+                                    <div className="flex flex-col items-start text-left">
                                         <span className="font-bold uppercase tracking-tight text-lg">{p.title}</span>
-                                        <Icon name="ChevronRight" className="w-6 h-6 text-red-600" />
-                                    </button>
+                                        {history[p.id] && (
+                                            <span className="text-[10px] text-red-600 font-bold uppercase tracking-widest mt-1 flex items-center gap-1">
+                                                <Save className="w-3 h-3" /> Completado recientemente
+                                            </span>
+                                        )}
+                                    </div>
+                                    <ChevronRight className="w-6 h-6 text-zinc-700" />
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                ) : (
+                    <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-300">
+                        <button onClick={() => setView('home')} className="text-red-600 font-black text-xs uppercase tracking-widest flex items-center gap-2 py-2">
+                            <ChevronLeft className="w-4 h-4" /> Volver al Menú
+                        </button>
+
+                        <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-[3rem] text-center shadow-2xl shadow-red-950/10 relative overflow-hidden">
+                            <h3 className="text-3xl font-black uppercase mb-2 leading-tight tracking-tighter italic">{selectedMuscle.fst7}</h3>
+                            <p className="text-red-600 font-black text-[10px] uppercase tracking-[0.4em] mb-10">Fascia Stretch Training 7</p>
+                            
+                            <div className="flex justify-center gap-2 mb-10">
+                                {[1,2,3,4,5,6,7].map(s => (
+                                    <div key={s} className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-sm transition-all duration-500 ${
+                                        s === currentSet ? 'bg-red-600 scale-110 shadow-lg shadow-red-600/40' : 
+                                        s < currentSet ? 'bg-zinc-800 text-zinc-600' : 'border-2 border-zinc-800 text-zinc-800'
+                                    }`}>
+                                        {s}
+                                    </div>
                                 ))}
                             </div>
-                        ) : (
-                            <div className="space-y-6">
-                                <button onClick={() => setView('home')} className="text-red-600 font-black text-xs uppercase tracking-widest flex items-center gap-2">
-                                    <Icon name="ArrowLeft" className="w-4 h-4" /> Volver
-                                </button>
 
-                                <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-[2.5rem] text-center">
-                                    <h3 className="text-2xl font-black uppercase mb-2 leading-tight">{selectedMuscle.fst7}</h3>
-                                    <p className="text-red-500 font-bold text-[10px] uppercase tracking-[0.3em] mb-8">Set de Expansión FST-7</p>
-                                    
-                                    <div className="flex justify-center gap-2 mb-8">
-                                        {[1,2,3,4,5,6,7].map(s => (
-                                            <div key={s} className={`w-9 h-9 rounded-full flex items-center justify-center font-black text-xs ${s === currentSet ? 'bg-red-600 shadow-lg shadow-red-900/40' : s < currentSet ? 'bg-zinc-800 text-zinc-600' : 'border-2 border-zinc-800 text-zinc-800'}`}>{s}</div>
-                                        ))}
-                                    </div>
-
-                                    <div className="mb-10">
-                                        <div className={`text-8xl font-black tracking-tighter ${timerActive ? 'text-red-600 animate-pulse' : 'text-zinc-800'}`}>00:{timeLeft < 10 ? `0${timeLeft}` : timeLeft}</div>
-                                        <p className="text-zinc-500 font-bold uppercase text-[10px] mt-2">Segundos de Descanso</p>
-                                    </div>
-
-                                    <button 
-                                        onClick={() => { if(currentSet < 7) { setCurrentSet(c => c+1); startTimer(); } else { setView('home'); } }} 
-                                        className="w-full bg-red-600 py-5 rounded-2xl font-black uppercase tracking-widest text-sm active:scale-95 transition-transform"
-                                    >
-                                        {timerActive ? 'Descansando...' : currentSet === 7 ? 'Finalizar Sesión' : 'Siguiente Serie'}
-                                    </button>
+                            <div className="mb-12">
+                                <div className={`text-9xl font-black tracking-tighter tabular-nums ${timerActive ? 'text-red-600' : 'text-zinc-800'}`}>
+                                    {timeLeft}
                                 </div>
+                                <p className="text-zinc-500 font-black uppercase text-[10px] tracking-[0.5em] mt-4">Rest Interval</p>
                             </div>
-                        )}
-                    </main>
 
-                    <nav className="fixed bottom-0 left-0 right-0 bg-zinc-950 border-t border-zinc-900 p-5 flex justify-around">
-                        <button onClick={() => setView('home')} className={`p-2 ${view === 'home' ? 'text-red-600' : 'text-zinc-700'}`}><Icon name="LayoutDashboard" className="w-6 h-6" /></button>
-                        <button onClick={() => { if(selectedMuscle) setView('workout') }} className={`p-2 ${view === 'workout' ? 'text-red-600' : 'text-zinc-700'}`}><Icon name="Timer" className="w-6 h-6" /></button>
-                    </nav>
+                            <button 
+                                onClick={() => { 
+                                    if(currentSet < 7) { 
+                                        const next = currentSet + 1;
+                                        setCurrentSet(next); 
+                                        startTimer(); 
+                                        saveProgress(selectedMuscle.id, next);
+                                    } else { 
+                                        saveProgress(selectedMuscle.id, 1);
+                                        setView('home'); 
+                                    } 
+                                }} 
+                                className="w-full bg-red-600 py-6 rounded-[2rem] font-black uppercase tracking-widest text-sm shadow-xl shadow-red-900/20 active:scale-95 transition-transform"
+                            >
+                                {timerActive ? 'Descansando...' : currentSet === 7 ? 'Finalizar Entrenamiento' : 'Completar Serie'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </main>
+
+            {/* Navbar Bottom */}
+            <nav className="fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-2xl border-t border-zinc-900 pb-10 pt-4 flex justify-around px-8">
+                <button onClick={() => setView('home')} className={`flex flex-col items-center gap-1 ${view === 'home' ? 'text-red-600' : 'text-zinc-700'}`}>
+                    <LayoutDashboard className="w-6 h-6" />
+                    <span className="text-[8px] font-bold uppercase tracking-widest">Dashboard</span>
+                </button>
+                <div className="relative -top-10">
+                    <button className="bg-red-600 w-16 h-16 rounded-full flex items-center justify-center shadow-2xl shadow-red-600/40 active:scale-90 transition-transform">
+                        <Activity className="w-8 h-8 text-white" />
+                    </button>
                 </div>
-            );
-        }
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+                <button onClick={() => { if(selectedMuscle) setView('workout') }} className={`flex flex-col items-center gap-1 ${view === 'workout' ? 'text-red-600' : 'text-zinc-700'}`}>
+                    <Timer className="w-6 h-6" />
+                    <span className="text-[8px] font-bold uppercase tracking-widest">Timer</span>
+                </button>
+            </nav>
+        </div>
+    );
+}
